@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Buzzer Quiz — Host Panel</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f0f2f5;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 40px 16px;
+    }
+
+    .panel {
+      background: #ffffff;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      padding: 28px;
+      width: 100%;
+      max-width: 560px;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 24px;
+      border-bottom: 2px solid #dee2e6;
+      padding-bottom: 12px;
+    }
+
+    /* Status Row */
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .status-info {
+      font-size: 0.9rem;
+      color: #343a40;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .badge-inactive { background: #e9ecef; color: #6c757d; }
+    .badge-active   { background: #d4edda; color: #155724; }
+
+    /* Winner Banner */
+    #winner-banner {
+      display: none;
+      padding: 12px;
+      border-radius: 4px;
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffc107;
+      font-weight: 700;
+      font-size: 1rem;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    /* Buttons */
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 10px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #btn-start { background: #28a745; color: #fff; }
+    #btn-start:not(:disabled):hover { background: #218838; }
+
+    #btn-reset { background: #dc3545; color: #fff; }
+    #btn-reset:not(:disabled):hover { background: #c82333; }
+
+    /* Divider */
+    .section-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #dee2e6;
+      padding-bottom: 6px;
+    }
+
+    /* Player List */
+    #player-list {
+      list-style: none;
+      margin-bottom: 22px;
+      min-height: 40px;
+    }
+
+    #player-list li {
+      padding: 7px 10px;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      color: #343a40;
+      border-bottom: 1px solid #f0f2f5;
+    }
+
+    #player-list li:last-child { border-bottom: none; }
+
+    #player-count {
+      font-size: 0.8rem;
+      color: #6c757d;
+      font-weight: normal;
+    }
+
+    #no-players {
+      font-size: 0.875rem;
+      color: #adb5bd;
+      padding: 8px 0;
+    }
+
+    /* Log Box */
+    .log-box {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 10px 12px;
+      font-size: 0.8rem;
+      color: #495057;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    .log-box p { margin-bottom: 4px; }
+    .log-box p:last-child { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+<div class="panel">
+  <h1>Host Panel</h1>
+
+  <!-- Status Row -->
+  <div class="status-row">
+    <div class="status-info">
+      Status Sesi: <span id="status-badge" class="status-badge badge-inactive">Tidak Aktif</span>
+    </div>
+    <div class="status-info">
+      Pemenang: <strong id="winner-name">-</strong>
+    </div>
+  </div>
+
+  <!-- Winner Banner -->
+  <div id="winner-banner"></div>
+
+  <!-- Buttons -->
+  <div class="btn-row">
+    <button id="btn-start" class="btn">Mulai Sesi</button>
+    <button id="btn-reset" class="btn">Reset Sesi</button>
+  </div>
+
+  <!-- Player List -->
+  <p class="section-title">
+    Player yang Terhubung <span id="player-count"></span>
+  </p>
+  <ul id="player-list">
+    <li id="no-players">Belum ada player yang bergabung.</li>
+  </ul>
+
+  <!-- Activity Log -->
+  <p class="section-title">Log Aktivitas</p>
+  <div class="log-box" id="log-box"></div>
+</div>
+
+<script>
+  // DOM References
+  const statusBadge  = document.getElementById('status-badge');
+  const winnerName   = document.getElementById('winner-name');
+  const winnerBanner = document.getElementById('winner-banner');
+  const btnStart     = document.getElementById('btn-start');
+  const btnReset     = document.getElementById('btn-reset');
+  const playerList   = document.getElementById('player-list');
+  const playerCount  = document.getElementById('player-count');
+  const noPlayers    = document.getElementById('no-players');
+  const logBox       = document.getElementById('log-box');
+
+  // Previous state for change detection (log suppression)
+  let prevIsOpen  = null;
+  let prevWinner  = null;
+  let prevPlayers = [];
+
+  // Helpers
+  function appendLog(msg) {
+    const p = document.createElement('p');
+    const time = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    p.textContent = '[' + time + '] ' + msg;
+    logBox.appendChild(p);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  // State-Driven UI Renderer
+  function renderState(payload) {
+    const { isSessionOpen, winner, players } = payload;
+
+    // Status Badge
+    if (isSessionOpen) {
+      statusBadge.textContent = 'Aktif';
+      statusBadge.className   = 'status-badge badge-active';
+    } else {
+      statusBadge.textContent = 'Tidak Aktif';
+      statusBadge.className   = 'status-badge badge-inactive';
+    }
+
+    // Winner Display
+    if (winner !== null) {
+      winnerName.textContent      = winner;
+      winnerBanner.style.display  = 'block';
+      winnerBanner.textContent    = 'PEMENANG: ' + winner.toUpperCase();
+    } else {
+      winnerName.textContent      = '-';
+      winnerBanner.style.display  = 'none';
+    }
+
+    // Button States
+    btnStart.disabled = isSessionOpen;
+    btnReset.disabled = false;
+
+    // Player List
+    playerList.innerHTML = '';
+
+    if (players.length === 0) {
+      playerCount.textContent = '';
+      const li = document.createElement('li');
+      li.id          = 'no-players';
+      li.textContent = 'Belum ada player yang bergabung.';
+      playerList.appendChild(li);
+    } else {
+      playerCount.textContent = '(' + players.length + ')';
+      players.forEach(function (name, idx) {
+        const li = document.createElement('li');
+        li.textContent = (idx + 1) + '. ' + name;
+        playerList.appendChild(li);
+      });
+    }
+
+    // Log Changes
+    if (prevWinner === null && winner !== null) {
+      appendLog('PEMENANG: ' + winner);
+    }
+
+    if (prevIsOpen === false && isSessionOpen === true) {
+      appendLog('Sesi dimulai.');
+    }
+
+    if (prevIsOpen === true && isSessionOpen === false && winner === null) {
+      appendLog('Sesi telah direset.');
+    }
+
+    // Detect newly joined players
+    if (players.length > prevPlayers.length) {
+      const newPlayers = players.filter(function (p) { return prevPlayers.indexOf(p) === -1; });
+      newPlayers.forEach(function (p) { appendLog(p + ' telah bergabung.'); });
+    }
+
+    // Detect disconnected players
+    if (players.length < prevPlayers.length) {
+      const leftPlayers = prevPlayers.filter(function (p) { return players.indexOf(p) === -1; });
+      leftPlayers.forEach(function (p) { appendLog(p + ' telah meninggalkan room.'); });
+    }
+
+    prevIsOpen  = isSessionOpen;
+    prevWinner  = winner;
+    prevPlayers = players.slice();
+  }
+
+  // WebSocket Setup
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws       = new WebSocket(protocol + '://' + location.host + '/ws?role=host');
+
+  ws.onopen = function () {
+    appendLog('Terhubung ke server sebagai Host.');
+    btnStart.disabled = false;
+    btnReset.disabled = false;
+  };
+
+  ws.onmessage = function (event) {
+    let msg;
+    try {
+      msg = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+
+    if (msg.type === 'STATE_UPDATE') {
+      renderState(msg.payload);
+    }
+
+    if (msg.type === 'ERROR') {
+      appendLog('[ERROR] ' + msg.payload.message);
+    }
+  };
+
+  ws.onclose = function () {
+    appendLog('Koneksi ke server terputus.');
+    btnStart.disabled = true;
+    btnReset.disabled = true;
+  };
+
+  ws.onerror = function () {
+    appendLog('[ERROR] Gagal terhubung ke server.');
+  };
+
+  // Button Event Listeners
+  btnStart.addEventListener('click', function () {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'START_SESSION' }));
+  });
+
+  btnReset.addEventListener('click', function () {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'RESET_SESSION' }));
+  });
+
+  // Disable buttons by default until WS is open
+  btnStart.disabled = true;
+  btnReset.disabled = true;
+</script>
+</body>
+</html>

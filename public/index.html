@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Buzzer Quiz — Player</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f0f2f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      padding: 32px 28px;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .section { display: none; }
+    .section.active { display: block; }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #343a40;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 9px 12px;
+      font-size: 1rem;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      outline: none;
+    }
+
+    input[type="text"]:focus { border-color: #007bff; }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 11px;
+      margin-top: 14px;
+      font-size: 1rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #btn-join     { background: #007bff; color: #fff; }
+    #btn-join:not(:disabled):hover { background: #0069d9; }
+
+    #btn-buzz     { background: #28a745; color: #fff; font-size: 1.25rem; padding: 18px; }
+    #btn-buzz:not(:disabled):hover { background: #218838; }
+    #btn-buzz:disabled { background: #6c757d; }
+
+    .status-label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      text-align: center;
+    }
+
+    .status-waiting  { background: #e9ecef; color: #495057; }
+    .status-active   { background: #d4edda; color: #155724; }
+    .status-locked   { background: #fff3cd; color: #856404; }
+
+    .winner-banner {
+      text-align: center;
+      font-size: 1.1rem;
+      font-weight: 700;
+      padding: 14px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffc107;
+    }
+
+    .error-msg {
+      font-size: 0.8rem;
+      color: #dc3545;
+      margin-top: 6px;
+      min-height: 18px;
+    }
+
+    #greeting {
+      font-size: 1.1rem;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 18px;
+      color: #343a40;
+    }
+
+    .log-box {
+      margin-top: 18px;
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 10px 12px;
+      font-size: 0.8rem;
+      color: #495057;
+      max-height: 110px;
+      overflow-y: auto;
+    }
+
+    .log-box p { margin-bottom: 4px; }
+    .log-box p:last-child { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Buzzer Quiz</h1>
+
+  <!-- STATE 1: Form Join -->
+  <div id="section-join" class="section active">
+    <label for="input-username">Masukkan Username:</label>
+    <input id="input-username" type="text" placeholder="Nama kamu..." maxlength="30" autocomplete="off" />
+    <p id="join-error" class="error-msg"></p>
+    <button id="btn-join" class="btn">Bergabung</button>
+  </div>
+
+  <!-- STATE 2 / 3 / 4: Setelah JOIN -->
+  <div id="section-game" class="section">
+    <p id="greeting"></p>
+    <div id="status-label" class="status-label status-waiting">Status Sesi: Menunggu Host...</div>
+    <div id="winner-banner" class="winner-banner" style="display:none;"></div>
+    <button id="btn-buzz" class="btn" disabled>BUZZ!</button>
+    <div class="log-box" id="log-box"></div>
+  </div>
+</div>
+
+<script>
+  // DOM References
+  const sectionJoin   = document.getElementById('section-join');
+  const sectionGame   = document.getElementById('section-game');
+  const inputUsername = document.getElementById('input-username');
+  const joinError     = document.getElementById('join-error');
+  const btnJoin       = document.getElementById('btn-join');
+  const btnBuzz       = document.getElementById('btn-buzz');
+  const greeting      = document.getElementById('greeting');
+  const statusLabel   = document.getElementById('status-label');
+  const winnerBanner  = document.getElementById('winner-banner');
+  const logBox        = document.getElementById('log-box');
+
+  // App State
+  let ws         = null;
+  let myUsername = '';
+
+  // Helpers
+  function appendLog(msg) {
+    const p = document.createElement('p');
+    const time = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    p.textContent = '[' + time + '] ' + msg;
+    logBox.appendChild(p);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  // State-Driven UI Renderer
+  function renderState(payload) {
+    const { isSessionOpen, winner, players } = payload;
+
+    if (winner !== null) {
+      // STATE 4: Pemenang diumumkan
+      btnBuzz.disabled = true;
+      winnerBanner.style.display = 'block';
+
+      if (winner === myUsername) {
+        winnerBanner.textContent = 'PEMENANG: ' + winner.toUpperCase() + ' — Kamu yang tercepat!';
+      } else {
+        winnerBanner.textContent = winner + ' adalah yang tercepat!';
+      }
+
+      statusLabel.textContent    = 'Sesi telah berakhir.';
+      statusLabel.className      = 'status-label status-locked';
+      return;
+    }
+
+    winnerBanner.style.display = 'none';
+
+    if (isSessionOpen) {
+      // STATE 3: Sesi aktif
+      btnBuzz.disabled        = false;
+      statusLabel.textContent = 'Status Sesi: AKTIF — Tekan Buzz!';
+      statusLabel.className   = 'status-label status-active';
+    } else {
+      // STATE 2: Menunggu host
+      btnBuzz.disabled        = true;
+      statusLabel.textContent = 'Status Sesi: Menunggu Host...';
+      statusLabel.className   = 'status-label status-waiting';
+    }
+  }
+
+  // WebSocket Initialization (dipanggil setelah JOIN)
+  function initWebSocket(username) {
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(protocol + '://' + location.host + '/ws');
+
+    ws.onopen = function () {
+      ws.send(JSON.stringify({ type: 'JOIN', payload: { username: username } }));
+    };
+
+    ws.onmessage = function (event) {
+      let msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      if (msg.type === 'STATE_UPDATE') {
+        const p = msg.payload;
+        renderState(p);
+
+        // Deteksi perubahan state untuk log
+        if (p.winner !== null) {
+          appendLog('Pemenang: ' + p.winner);
+        } else if (p.isSessionOpen) {
+          appendLog('Sesi telah dimulai! Tekan BUZZ!');
+        }
+      }
+
+      if (msg.type === 'ERROR') {
+        appendLog('[ERROR] ' + msg.payload.message);
+      }
+    };
+
+    ws.onclose = function () {
+      appendLog('Koneksi terputus dari server.');
+      btnBuzz.disabled        = true;
+      statusLabel.textContent = 'Koneksi terputus.';
+      statusLabel.className   = 'status-label status-locked';
+    };
+
+    ws.onerror = function () {
+      appendLog('[ERROR] Gagal terhubung ke server.');
+    };
+  }
+
+  // Event Listeners
+
+  btnJoin.addEventListener('click', function () {
+    const username = inputUsername.value.trim();
+
+    if (!username) {
+      joinError.textContent = 'Username tidak boleh kosong.';
+      return;
+    }
+
+    joinError.textContent = '';
+    myUsername = username;
+
+    // Transisi ke STATE 2: Ruang Tunggu
+    sectionJoin.classList.remove('active');
+    sectionGame.classList.add('active');
+    greeting.textContent = 'Halo, ' + myUsername + '!';
+    appendLog('Terhubung ke server...');
+
+    initWebSocket(username);
+  });
+
+  inputUsername.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') btnJoin.click();
+  });
+
+  btnBuzz.addEventListener('click', function () {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'BUZZ' }));
+    btnBuzz.disabled = true; // Optimistic disable — server akan konfirmasi via STATE_UPDATE
+  });
+</script>
+</body>
+</html>
